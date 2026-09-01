@@ -1,0 +1,56 @@
+# Root-level environment files
+.env
+.env.local
+.env.*.local
+
+# Frontend: rag-frontend
+rag-frontend/node_modules/
+rag-frontend/.next/
+rag-frontend/out/
+rag-frontend/.npm/
+rag-frontend/.env
+rag-frontend/.env.local
+rag-frontend/.env.*.local
+rag-frontend/npm-debug.log*
+rag-frontend/yarn-debug.log*
+rag-frontend/yarn-error.log*
+
+# Backend: rag-backend
+rag-backend/__pycache__/
+rag-backend/*.py[cod]
+rag-backend/venv/
+rag-backend/.venv/
+rag-backend/*.egg-info/
+rag-backend/.pytest_cache/
+rag-backend/.mypy_cache/
+rag-backend/*.sqlite3
+rag-backend/chroma_db/
+rag-backend/.env
+rag-backend/.env.local
+rag-backend/.env.*.local
+
+# Generic ignores
+node_modules/
+.next/
+out/
+.npm/
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+*.sqlite3
+chroma_db/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

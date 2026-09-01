@@ -1,0 +1,3 @@
+The Next.js 16 framework defaults to Turbopack for 10x faster local development.
+Tailwind CSS v4 removed the tailwind.config.ts file in favor of a CSS-first @theme approach.
+RAG stands for Retrieval-Augmented Generation, bridging the gap between frozen LLMs and dynamic data.

@@ -47,11 +47,16 @@ export default function Home() {
         if (value) {
           const chunk = decoder.decode(value, { stream: true })
 
-          // 3. Append the new chunk to the LAST message in the history array
+          // 3. Append the new chunk using strict immutable state updates
           setHistory((prev) => {
             const updated = [...prev]
-            const lastMessage = updated[updated.length - 1]
+
+            // Create a brand new copy of the last message to satisfy React Strict Mode
+            const lastMessage = { ...updated[updated.length - 1] }
+
             lastMessage.content += chunk
+            updated[updated.length - 1] = lastMessage
+
             return updated
           })
         }

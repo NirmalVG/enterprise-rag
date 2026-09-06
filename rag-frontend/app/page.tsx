@@ -1,6 +1,8 @@
 "use client"
 
 import { useState } from "react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 
 type Message = { role: "user" | "assistant"; content: string }
 
@@ -26,9 +28,10 @@ export default function Home() {
     setHistory(currentHistory)
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/ask", {
+      const res = await fetch("http://localhost:8000/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // Send the previous history (excluding the new question) to the backend
         body: JSON.stringify({ question: userMsg, chat_history: history }),
       })
 
@@ -37,7 +40,7 @@ export default function Home() {
       // 2. Set up the stream reader
       const reader = res.body.getReader()
       const decoder = new TextDecoder("utf-8")
-      setLoading(false) // Turn off the loading bounce since we are about to type
+      setLoading(false) // Turn off the bounce animation once data arrives
 
       let done = false
       while (!done) {
@@ -68,21 +71,24 @@ export default function Home() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center p-8 bg-neutral-950 text-neutral-100">
-      <div className="w-full max-w-3xl flex flex-col h-[90vh]">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold mb-2 text-white">
-            Knowledge Base AI
+    <main className="flex min-h-screen flex-col items-center p-8 bg-neutral-950 text-neutral-100 font-sans">
+      <div className="w-full max-w-4xl flex flex-col h-[90vh]">
+        {/* Header */}
+        <div className="text-center mb-8 shrink-0">
+          <h1 className="text-4xl font-bold tracking-tight mb-2 text-white">
+            Enterprise RAG
           </h1>
-          <p className="text-neutral-400">Reranking & Memory Enabled.</p>
+          <p className="text-neutral-400">
+            Hybrid Search, Semantic Chunking, & Memory
+          </p>
         </div>
 
         {/* Chat Log */}
-        <div className="flex-1 overflow-y-auto space-y-4 mb-4 p-4 rounded-2xl bg-neutral-900 border border-neutral-800 scrollbar-hide">
+        <div className="flex-1 overflow-y-auto space-y-6 mb-4 p-6 rounded-2xl bg-neutral-900 border border-neutral-800 scrollbar-hide">
           {history.length === 0 ? (
-            <p className="text-center text-neutral-500 italic mt-10">
-              Ask your first question...
-            </p>
+            <div className="h-full flex flex-col items-center justify-center text-neutral-500 italic space-y-4">
+              <p>Ask a question about your documents...</p>
+            </div>
           ) : (
             history.map((msg, idx) => (
               <div
@@ -90,16 +96,33 @@ export default function Home() {
                 className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[80%] p-4 rounded-2xl ${msg.role === "user" ? "bg-blue-600 text-white" : "bg-neutral-800 text-neutral-200"}`}
+                  className={`max-w-[85%] p-5 rounded-2xl ${
+                    msg.role === "user"
+                      ? "bg-blue-600 text-white shadow-md rounded-br-sm"
+                      : "bg-neutral-800 text-neutral-200 shadow-md rounded-bl-sm overflow-x-auto"
+                  }`}
                 >
-                  <p className="whitespace-pre-wrap">{msg.content}</p>
+                  {msg.role === "user" ? (
+                    <p className="whitespace-pre-wrap leading-relaxed">
+                      {msg.content}
+                    </p>
+                  ) : (
+                    // Markdown Renderer for AI responses (Tables, Lists, Bold, etc.)
+                    <div className="prose prose-invert prose-blue max-w-none break-words">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {msg.content}
+                      </ReactMarkdown>
+                    </div>
+                  )}
                 </div>
               </div>
             ))
           )}
+
+          {/* Loading Animation */}
           {loading && (
             <div className="flex justify-start">
-              <div className="bg-neutral-800 p-4 rounded-2xl flex space-x-2 items-center">
+              <div className="bg-neutral-800 p-5 rounded-2xl rounded-bl-sm flex space-x-2 items-center h-12 shadow-md">
                 <div className="w-2 h-2 bg-neutral-500 rounded-full animate-bounce"></div>
                 <div className="w-2 h-2 bg-neutral-500 rounded-full animate-bounce delay-100"></div>
                 <div className="w-2 h-2 bg-neutral-500 rounded-full animate-bounce delay-200"></div>
@@ -117,16 +140,17 @@ export default function Home() {
             type="text"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
-            placeholder="Ask a follow-up question..."
-            className="w-full bg-neutral-900 border border-neutral-700 text-white rounded-full py-4 pl-6 pr-32 focus:outline-none focus:border-blue-500"
+            placeholder="Search your knowledge base..."
+            className="w-full bg-neutral-900 border border-neutral-700 text-white rounded-full py-4 pl-6 pr-32 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all shadow-lg"
             disabled={loading}
+            autoFocus
           />
           <button
             type="submit"
             disabled={loading || !question.trim()}
-            className="absolute right-2 top-2 bottom-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-full px-6 disabled:opacity-50"
+            className="absolute right-2 top-2 bottom-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-full px-8 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
           >
-            Send
+            Ask
           </button>
         </form>
       </div>

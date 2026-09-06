@@ -1,5 +1,6 @@
 # main.py
 import os
+import pickle
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,23 +8,28 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict
 
-# New Hybrid Search Imports
+# Hybrid Search Imports
 from langchain_community.retrievers import BM25Retriever
-from langchain.retrievers import EnsembleRetriever
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_core.documents import Document
+from langchain_classic.retrievers import EnsembleRetriever
 
+# Vector & Embedding Imports
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_groq import ChatGroq
+
+# Prompt & Chain Imports
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain.retrievers import ContextualCompressionRetriever
-from langchain.retrievers.document_compressors import CrossEncoderReranker
+
+# Reranker Imports
+from langchain_classic.retrievers import ContextualCompressionRetriever
+from langchain_classic.retrievers.document_compressors import CrossEncoderReranker
 from langchain_community.cross_encoders import HuggingFaceCrossEncoder
 
+# Load environment variables
 load_dotenv()
-app = FastAPI(title="Enterprise RAG API")
+
+app = FastAPI(title="Enterprise RAG API: Multi-Source Edition")
 
 app.add_middleware(
     CORSMiddleware,
@@ -39,33 +45,28 @@ vector_db = Chroma(persist_directory="./chroma_db", embedding_function=embedding
 dense_retriever = vector_db.as_retriever(search_kwargs={"k": 10})
 
 # 2. Sparse Retriever (Exact Keyword Search)
-with open("knowledge.txt", "r", encoding="utf-8") as file:
-    text = file.read()
-    
-chunks = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50).split_documents([Document(page_content=text)])
+# Instantly load the pre-processed chunks we generated in ingest.py
+with open("chunks.pkl", "rb") as file:
+    chunks = pickle.load(file)
+
 sparse_retriever = BM25Retriever.from_documents(chunks)
 sparse_retriever.k = 10
 
 # 3. Hybrid Search (Ensemble)
-# Merges keyword and vector results, giving each a 50% weight
 ensemble_retriever = EnsembleRetriever(
     retrievers=[dense_retriever, sparse_retriever],
-    weights=[0.5, 0.5] 
+    weights=[0.5, 0.5]
 )
 
 # 4. The Reranker (Cross-Encoder Filter)
-# The hybrid results are now piped directly into our high-accuracy reranker
 cross_encoder = HuggingFaceCrossEncoder(model_name="cross-encoder/ms-marco-MiniLM-L-6-v2")
 compressor = CrossEncoderReranker(model=cross_encoder, top_n=2)
-
-# We use the ensemble_retriever as the base for the compressor
 retriever = ContextualCompressionRetriever(base_compressor=compressor, base_retriever=ensemble_retriever)
 
-# --- KEEP EVERYTHING BELOW THIS LINE EXACTLY AS IT WAS ---
-# 5. Init LLM
+# 5. Initialize LLM
 llm = ChatGroq(model="openai/gpt-oss-20b")
 
-# 3. Memory Step: The Question Reformulator
+# 6. Memory Step: The Question Reformulator
 def format_history(history: List[Dict[str, str]]):
     if not history:
         return "No history."
@@ -89,7 +90,7 @@ def get_standalone_question(inputs: dict):
         })
     return inputs["question"]
 
-# 4. Final RAG Chain
+# 7. Final Generation Chain setup (Decoupled from retriever for citations)
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
 
@@ -101,33 +102,61 @@ Context:
 Question: {standalone_question}
 """
 qa_prompt = ChatPromptTemplate.from_template(qa_template)
+qa_chain = qa_prompt | llm | StrOutputParser()
 
-# We map inputs to the standalone question, then pipe that into the retriever and final prompt
-rag_chain = (
-    {
-        "standalone_question": get_standalone_question,
-        "context": get_standalone_question | retriever | format_docs, 
-    }
-    | qa_prompt
-    | llm
-    | StrOutputParser()
-)
+# 8. Agentic Routing Chains
+router_template = """Determine if the user's message requires looking up factual information, or if it is just a casual greeting/conversation. 
+Respond with exactly one word: 'SEARCH' or 'CASUAL'.
 
-# 5. Schema (Now accepts history!)
+Message: {question}
+Decision:"""
+router_chain = ChatPromptTemplate.from_template(router_template) | llm | StrOutputParser()
+
+casual_template = """You are a helpful, friendly AI assistant. Respond conversationally to the user.
+User: {question}
+"""
+casual_chain = ChatPromptTemplate.from_template(casual_template) | llm | StrOutputParser()
+
+
+# 9. Define the Request Schema
 class QueryRequest(BaseModel):
     question: str
     chat_history: List[Dict[str, str]] = []
 
+# 10. Expose the API Endpoint with Routing, Streaming, and Citations
 @app.post("/ask")
 async def ask_question(request: QueryRequest):
-    # We create an async generator function that yields text chunks as they arrive
     async def generate():
-        # .astream() automatically streams the output of the StrOutputParser
-        async for chunk in rag_chain.astream({
-            "question": request.question,
-            "chat_history": request.chat_history
-        }):
-            yield chunk
+        # Step A: Classify intent
+        decision = router_chain.invoke({"question": request.question}).strip().upper()
+        
+        # Step B: Route dynamically
+        if "CASUAL" in decision:
+            # Skip the database, stream friendly response
+            async for chunk in casual_chain.astream({"question": request.question}):
+                yield chunk
+        else:
+            # Step C: RAG Pipeline - Resolve conversational memory
+            standalone_q = get_standalone_question({
+                "question": request.question, 
+                "chat_history": request.chat_history
+            })
+            
+            # Step D: Retrieve documents and extract unique source metadata
+            docs = retriever.invoke(standalone_q)
+            sources = set([doc.metadata.get("source", "Unknown document") for doc in docs])
+            
+            # Step E: Stream the factual LLM response
+            async for chunk in qa_chain.astream({
+                "context": format_docs(docs),
+                "standalone_question": standalone_q
+            }):
+                yield chunk
+                
+            # Step F: Append the citations to the stream
+            if sources:
+                yield "\n\n**Sources:**\n"
+                for source in sources:
+                    yield f"- {source}\n"
 
-    # Return the stream with a standard text media type
     return StreamingResponse(generate(), media_type="text/plain")

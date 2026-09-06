@@ -33,7 +33,8 @@ app = FastAPI(title="Enterprise RAG API: Multi-Source Edition")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    # Replace the second URL with your actual live domain later
+    allow_origins=["http://localhost:3000", "https://your-frontend.vercel.app"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

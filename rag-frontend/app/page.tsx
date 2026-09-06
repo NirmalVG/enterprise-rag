@@ -28,7 +28,9 @@ export default function Home() {
     setHistory(currentHistory)
 
     try {
-      const res = await fetch("http://localhost:8000/ask", {
+      const backendUrl =
+        process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+      const res = await fetch(`${backendUrl}/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         // Send the previous history (excluding the new question) to the backend

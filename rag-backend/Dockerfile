@@ -1,13 +1,17 @@
-# Dockerfile
 FROM python:3.11-slim
-
 WORKDIR /app
 
+# Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy your application files (including chunks.pkl and chroma_db)
+# Copy all your scripts and knowledge files (knowledge.txt, sample.pdf)
 COPY . .
 
-# Run the app with Gunicorn and Uvicorn for production scaling
-CMD ["gunicorn", "main:app", "--workers", "2", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000"]
+# Generate the ChromaDB and chunks.pkl file directly inside the cloud container
+RUN python ingest.py
+
+EXPOSE 8000
+
+# Start the server using Gunicorn for production stability
+CMD ["gunicorn", "main:app", "--workers", "1", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--timeout", "120"]

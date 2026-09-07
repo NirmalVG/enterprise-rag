@@ -21,10 +21,9 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-# Reranker Imports
+# Reranker Imports — now hosted via Cohere instead of a local torch model
 from langchain_classic.retrievers import ContextualCompressionRetriever
-from langchain_classic.retrievers.document_compressors import CrossEncoderReranker
-from langchain_community.cross_encoders import HuggingFaceCrossEncoder
+from langchain_cohere import CohereRerank
 
 # Load environment variables
 load_dotenv()
@@ -34,7 +33,7 @@ app = FastAPI(title="Enterprise RAG API: Multi-Source Edition")
 app.add_middleware(
     CORSMiddleware,
     # Replace the second URL with your actual live domain later
-    allow_origins=["http://localhost:3000", "https://your-frontend.vercel.app"], 
+    allow_origins=["http://localhost:3000", "https://your-frontend.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -59,9 +58,10 @@ ensemble_retriever = EnsembleRetriever(
     weights=[0.5, 0.5]
 )
 
-# 4. The Reranker (Cross-Encoder Filter)
-cross_encoder = HuggingFaceCrossEncoder(model_name="cross-encoder/ms-marco-MiniLM-L-6-v2")
-compressor = CrossEncoderReranker(model=cross_encoder, top_n=2)
+# 4. The Reranker — Cohere's hosted Rerank API
+# No local model load = no second torch model resident in memory.
+# Requires COHERE_API_KEY set in your environment (Render dashboard -> Environment).
+compressor = CohereRerank(model="rerank-v3.5", top_n=2)
 retriever = ContextualCompressionRetriever(base_compressor=compressor, base_retriever=ensemble_retriever)
 
 # 5. Initialize LLM
@@ -130,7 +130,7 @@ async def ask_question(request: QueryRequest):
     async def generate():
         # Step A: Classify intent
         decision = router_chain.invoke({"question": request.question}).strip().upper()
-        
+
         # Step B: Route dynamically
         if "CASUAL" in decision:
             # Skip the database, stream friendly response
@@ -139,21 +139,21 @@ async def ask_question(request: QueryRequest):
         else:
             # Step C: RAG Pipeline - Resolve conversational memory
             standalone_q = get_standalone_question({
-                "question": request.question, 
+                "question": request.question,
                 "chat_history": request.chat_history
             })
-            
+
             # Step D: Retrieve documents and extract unique source metadata
             docs = retriever.invoke(standalone_q)
             sources = set([doc.metadata.get("source", "Unknown document") for doc in docs])
-            
+
             # Step E: Stream the factual LLM response
             async for chunk in qa_chain.astream({
                 "context": format_docs(docs),
                 "standalone_question": standalone_q
             }):
                 yield chunk
-                
+
             # Step F: Append the citations to the stream
             if sources:
                 yield "\n\n**Sources:**\n"
